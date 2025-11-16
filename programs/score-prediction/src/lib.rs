@@ -36,9 +36,13 @@ pub mod score_prediction {
         ctx.accounts.end_game()?;
         Ok(())
     }
+    pub fn update_score(ctx: Context<UpdateScore>) -> Result<()> {
+        ctx.accounts.update_score()?;
+        Ok(())
+    }
 
-    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
-        ctx.accounts.deposit(amount);
+    pub fn deposit(ctx: Context<Deposit>, amount: u64, team_name: String) -> Result<()> {
+        ctx.accounts.deposit(amount, team_name)?;
         Ok(())
     }
 }
