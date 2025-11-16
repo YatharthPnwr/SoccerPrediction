@@ -36,8 +36,13 @@ pub mod score_prediction {
         ctx.accounts.end_game()?;
         Ok(())
     }
-    pub fn update_score(ctx: Context<UpdateScore>) -> Result<()> {
-        ctx.accounts.update_score()?;
+    pub fn update_score(
+        ctx: Context<UpdateScore>,
+        new_team_a_score: u8,
+        new_team_b_score: u8,
+    ) -> Result<()> {
+        ctx.accounts
+            .update_score(new_team_a_score, new_team_b_score)?;
         Ok(())
     }
 
