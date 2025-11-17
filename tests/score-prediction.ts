@@ -680,6 +680,227 @@ describe("score-prediction", () => {
       }
     });
   });
+
+  describe("8. Exact Reward Calculation Test", () => {
+    it("Should calculate exact rewards for two users betting at different times", async () => {
+      // Setup a new game for this specific test
+      const rewardTestSeed = new BN(99999);
+      const testInitialLiquidity = new BN(100 * LAMPORTS_PER_SOL); // 100 SOL virtual liquidity
+
+      const [rewardTestGameStatePDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("gameState"), rewardTestSeed.toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
+
+      const [rewardTestVaultPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("vault"), rewardTestSeed.toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
+
+      // Create two new users for this test
+      const bettor1 = Keypair.generate();
+      const bettor2 = Keypair.generate();
+
+      await airdrop(
+        provider.connection,
+        bettor1.publicKey,
+        100 * LAMPORTS_PER_SOL
+      );
+      await airdrop(
+        provider.connection,
+        bettor2.publicKey,
+        100 * LAMPORTS_PER_SOL
+      );
+
+      const [bettor1SharesPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("matchShares"),
+          rewardTestSeed.toArrayLike(Buffer, "le", 8),
+          bettor1.publicKey.toBuffer(),
+        ],
+        program.programId
+      );
+
+      const [bettor2SharesPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("matchShares"),
+          rewardTestSeed.toArrayLike(Buffer, "le", 8),
+          bettor2.publicKey.toBuffer(),
+        ],
+        program.programId
+      );
+
+      // Initialize the game
+      await program.methods
+        .initialize(
+          rewardTestSeed,
+          testInitialLiquidity,
+          "Barcelona",
+          "Real Madrid"
+        )
+        .accounts({
+          adminAddress: admin.publicKey,
+          oracleAddress: oracle.publicKey,
+        })
+        .rpc();
+
+      // Start the game
+      await program.methods
+        .startGame(rewardTestSeed)
+        .accounts({
+          adminAddress: admin.publicKey,
+        })
+        .rpc();
+
+      // --- PHASE 1: Bettor1 deposits BEFORE any goals ---
+      const bettor1Amount = new BN(10 * LAMPORTS_PER_SOL); // 10 SOL
+
+      const gameStateBeforeBet1 = await program.account.gameState.fetch(
+        rewardTestGameStatePDA
+      );
+      const virtualA_before1 =
+        gameStateBeforeBet1.virtualTeamAPoolTokens.toNumber();
+      const virtualB_before1 =
+        gameStateBeforeBet1.virtualTeamBPoolTokens.toNumber();
+      const k_before1 = gameStateBeforeBet1.k;
+
+      await program.methods
+        .deposit(rewardTestSeed, bettor1Amount, "Barcelona")
+        .accounts({
+          user: bettor1.publicKey,
+        })
+        .signers([bettor1])
+        .rpc();
+
+      const bettor1Shares = await program.account.matchShares.fetch(
+        bettor1SharesPDA
+      );
+      const bettor1SharesAmount = bettor1Shares.teamAShares.toNumber();
+
+      // --- Update score: Barcelona scores ---
+      await program.methods
+        .updateScore(rewardTestSeed, 1, 0)
+        .accounts({
+          oracle: oracle.publicKey,
+        })
+        .signers([oracle])
+        .rpc();
+
+      const gameStateAfterGoal = await program.account.gameState.fetch(
+        rewardTestGameStatePDA
+      );
+
+      // --- PHASE 2: Bettor2 deposits AFTER Barcelona scored ---
+      const bettor2Amount = new BN(5 * LAMPORTS_PER_SOL); // 5 SOL
+
+      const gameStateBeforeBet2 = await program.account.gameState.fetch(
+        rewardTestGameStatePDA
+      );
+      const virtualA_before2 =
+        gameStateBeforeBet2.virtualTeamAPoolTokens.toNumber();
+      const virtualB_before2 =
+        gameStateBeforeBet2.virtualTeamBPoolTokens.toNumber();
+
+      await program.methods
+        .deposit(rewardTestSeed, bettor2Amount, "Barcelona")
+        .accounts({
+          user: bettor2.publicKey,
+        })
+        .signers([bettor2])
+        .rpc();
+
+      const bettor2Shares = await program.account.matchShares.fetch(
+        bettor2SharesPDA
+      );
+      const bettor2SharesAmount = bettor2Shares.teamAShares.toNumber();
+
+      // --- End the game (Barcelona wins 1-0) ---
+      const vaultBalanceBeforeEnd = await provider.connection.getBalance(
+        rewardTestVaultPDA
+      );
+
+      await program.methods
+        .endGame(rewardTestSeed)
+        .accounts({
+          adminAddress: admin.publicKey,
+        })
+        .rpc();
+
+      const vaultBalanceAfterEnd = await provider.connection.getBalance(
+        rewardTestVaultPDA
+      );
+      const platformFee = vaultBalanceBeforeEnd - vaultBalanceAfterEnd;
+
+      // --- Calculate expected rewards ---
+      const finalGameState = await program.account.gameState.fetch(
+        rewardTestGameStatePDA
+      );
+      const totalWinningShares = finalGameState.totalTeamAShares.toNumber();
+
+      // Calculate expected rewards
+      const expectedBettor1Reward = Math.floor(
+        (bettor1SharesAmount * vaultBalanceAfterEnd) / totalWinningShares
+      );
+      const expectedBettor2Reward = Math.floor(
+        (bettor2SharesAmount * vaultBalanceAfterEnd) / totalWinningShares
+      );
+
+      // Calculate ROI
+      const bettor1ROI =
+        (expectedBettor1Reward / bettor1Amount.toNumber() - 1) * 100;
+      const bettor2ROI =
+        (expectedBettor2Reward / bettor2Amount.toNumber() - 1) * 100;
+
+      // --- Claim rewards and verify ---
+      const bettor1BalanceBefore = await provider.connection.getBalance(
+        bettor1.publicKey
+      );
+      await program.methods
+        .claimRewards(rewardTestSeed)
+        .accounts({
+          user: bettor1.publicKey,
+        })
+        .signers([bettor1])
+        .rpc();
+      const bettor1BalanceAfter = await provider.connection.getBalance(
+        bettor1.publicKey
+      );
+      const actualBettor1Reward = bettor1BalanceAfter - bettor1BalanceBefore;
+
+      const bettor2BalanceBefore = await provider.connection.getBalance(
+        bettor2.publicKey
+      );
+      await program.methods
+        .claimRewards(rewardTestSeed)
+        .accounts({
+          user: bettor2.publicKey,
+        })
+        .signers([bettor2])
+        .rpc();
+      const bettor2BalanceAfter = await provider.connection.getBalance(
+        bettor2.publicKey
+      );
+      const actualBettor2Reward = bettor2BalanceAfter - bettor2BalanceBefore;
+
+      // Verify rewards match expectations (with tolerance for rent-exempt balance and rounding)
+      // Vault must maintain minimum rent-exempt balance, so there may be a small difference
+      const tolerance = 1000000; // 0.001 SOL tolerance for rent-exempt balance
+
+      expect(
+        Math.abs(actualBettor1Reward - expectedBettor1Reward)
+      ).to.be.lessThan(tolerance);
+
+      expect(
+        Math.abs(actualBettor2Reward - expectedBettor2Reward)
+      ).to.be.lessThan(tolerance);
+
+      // Verify that betting early gave better returns
+      expect(bettor1ROI).to.be.greaterThan(
+        bettor2ROI,
+        "Early bettor should have higher ROI than late bettor"
+      );
+    });
+  });
 });
 
 // Helper function for airdrops

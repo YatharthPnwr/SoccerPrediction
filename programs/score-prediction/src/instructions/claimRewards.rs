@@ -60,8 +60,9 @@ impl<'info> ClaimRewards<'info> {
             self.game_state.total_team_b_shares
         };
         //Send the deserving shares to the user from the vault.
+        // Use the stored vault balance from game end, not current balance
         let user_reward = (user_winning_team_shares as u128)
-            .checked_mul(self.vault.lamports() as u128)
+            .checked_mul(self.game_state.vault_sol_balance as u128)
             .ok_or(ErrorCode::Overflow)?
             .checked_div(total_winning_shares as u128)
             .ok_or(ErrorCode::DivisionByZero)? as u64;
@@ -84,18 +85,29 @@ impl<'info> ClaimRewards<'info> {
 
         let signer_seeds: &[&[&[u8]]] = &[&[b"vault", seed_bytes.as_ref(), bump]];
 
-        let accounts = Transfer {
-            from: self.vault.to_account_info(),
-            to: to.to_account_info(),
-        };
+        // Ensure vault maintains minimum rent-exempt balance
+        let rent = Rent::get()?;
+        let min_rent_exempt = rent.minimum_balance(0);
+        let available_balance = self.vault.lamports().saturating_sub(min_rent_exempt);
 
-        let cpi_ctx = CpiContext::new_with_signer(
-            self.system_program.to_account_info(),
-            accounts,
-            signer_seeds,
-        );
+        // Only transfer up to the available balance
+        let transfer_amount = amount.min(available_balance);
 
-        transfer(cpi_ctx, amount)?;
+        if transfer_amount > 0 {
+            let accounts = Transfer {
+                from: self.vault.to_account_info(),
+                to: to.to_account_info(),
+            };
+
+            let cpi_ctx = CpiContext::new_with_signer(
+                self.system_program.to_account_info(),
+                accounts,
+                signer_seeds,
+            );
+
+            transfer(cpi_ctx, transfer_amount)?;
+        }
+
         Ok(())
     }
 }
