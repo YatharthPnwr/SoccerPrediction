@@ -9,6 +9,8 @@ pub enum ErrorCode {
     InvalidVaultAddress,
     #[msg("The Match is not live yet")]
     MatchNotLiveYet,
+    #[msg("The Match has not yet ended")]
+    MatchNotEndedYet,
     #[msg("This is an anauthorized oracle")]
     UnauthorizedOracle,
     #[msg("The new score cannot be less than the previous one")]
@@ -19,4 +21,16 @@ pub enum ErrorCode {
     ScoreTooHigh,
     #[msg("Mathematical Overflow")]
     MathOverflow,
+    #[msg("Arithmetic overflow occurred")]
+    Overflow,
+    #[msg("Division by zero")]
+    DivisionByZero,
+    #[msg("No winning shares available")]
+    NoWinningShares,
+    #[msg("Unauthorized admin")]
+    UnauthorizedAdmin,
+    #[msg("Match is not live")]
+    MatchNotLive,
+    #[msg("Match has already started")]
+    MatchAlreadyStarted,
 }

@@ -8,6 +8,7 @@ pub struct Initialize<'info> {
     #[account(mut)]
     pub admin_address: Signer<'info>,
 
+    /// CHECK: This is just an oracle address we're storing, no validation needed
     pub oracle_address: UncheckedAccount<'info>,
 
     #[account(
@@ -18,18 +19,25 @@ pub struct Initialize<'info> {
         bump
     )]
     pub game_state: Account<'info, GameState>,
-    pub vault_team_a: SystemAccount<'info>,
-    pub vault_team_b: SystemAccount<'info>,
+
+    /// CHECK: PDA vault controlled by program
+    #[account(
+        seeds = [b"vault", seed.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub vault: AccountInfo<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
 impl<'info> Initialize<'info> {
     pub fn initialize(
         &mut self,
+        seed: u64,
         initial_virtual_pool_liqidity: u64,
         team_a_name: String,
         team_b_name: String,
-        seed: u64,
+        bumps: &InitializeBumps,
     ) -> Result<()> {
         //calculate k
         let k_initial = ConstantProduct::k_from_xy(
@@ -42,19 +50,22 @@ impl<'info> Initialize<'info> {
         //check for valid oracle address.
         self.game_state.set_inner(GameState {
             seed,
+            vault_bump: bumps.vault,
             admin_address: self.admin_address.key(),
             oracle_address: self.oracle_address.key(),
             team_a_name,
             team_b_name,
+
             virtual_team_a_pool_tokens: initial_virtual_pool_liqidity,
             virtual_team_b_pool_tokens: initial_virtual_pool_liqidity,
             k: k_initial,
-            vault_team_a: self.vault_team_a.key(),
-            vault_team_b: self.vault_team_b.key(),
-            vault_sol_a: 0,
-            vault_sol_b: 0,
+
+            vault: self.vault.key(),
+            vault_sol_balance: 0,
+
             total_team_a_shares: 0,
             total_team_b_shares: 0,
+
             team_a_score: 0,
             team_b_score: 0,
             match_status: crate::MatchStatus::NotStarted,

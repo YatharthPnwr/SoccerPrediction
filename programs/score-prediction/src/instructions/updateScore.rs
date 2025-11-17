@@ -13,24 +13,31 @@ pub struct UpdateScore<'info> {
 
     /// Match state to update
     #[account(
-        mut,  // ✓ Must be mutable to update scores
+        mut, 
         seeds = [b"gameState", seed.to_le_bytes().as_ref()], 
-        bump,
-        constraint = oracle.key() == game_state.oracle_address @ ErrorCode::UnauthorizedOracle,
+        bump
     )]
     pub game_state: Account<'info, GameState>,
 }
 
 impl<'info> UpdateScore<'info> {
-    pub fn update_score(&mut self, new_team_a_score: u8, new_team_b_score: u8) -> Result<()> {
+    pub fn update_score(
+        &mut self,
+        seed: u64,
+        new_team_a_score: u8,
+        new_team_b_score: u8, ) -> Result<()> {
         let game_state = &mut self.game_state;
+        //0. Only Oracle should be able to update the match scores
+        require!(
+            self.oracle.to_account_info().key() == game_state.oracle_address.clone(), ErrorCode::UnauthorizedOracle
+        );
         // 1. Check match is Live
         require!(
             game_state.match_status == MatchStatus::Live,
             ErrorCode::MatchNotLiveYet
         );
 
-        // 3. Scores can only increase (anti-cheat)
+        // 2. Scores can only increase (anti-cheat)
         require!(
             new_team_a_score >= game_state.team_a_score,
             ErrorCode::ScoreCannotDecrease
@@ -41,14 +48,14 @@ impl<'info> UpdateScore<'info> {
             ErrorCode::ScoreCannotDecrease
         );
 
-        // 4. At least one score must change
+        // 3. At least one score must change
         require!(
             new_team_a_score != game_state.team_a_score
                 || new_team_b_score != game_state.team_b_score,
             ErrorCode::NoScoreChange
         );
 
-        // 5. Reasonable score limits (prevent overflow)
+        // 4. Reasonable score limits (prevent overflow)
         require!(
             new_team_a_score <= 50 && new_team_b_score <= 50,
             ErrorCode::ScoreTooHigh
@@ -95,8 +102,8 @@ impl<'info> UpdateScore<'info> {
         game_state.team_b_score = new_team_b_score;
         game_state.virtual_team_a_pool_tokens = new_virtual_a;
         game_state.virtual_team_b_pool_tokens = new_virtual_b;
-        game_state.k = new_virtual_a.mul(new_virtual_b) as u128;
-
+        game_state.k = new_k;
+        
         emit!(ScoreUpdated {
             match_id: game_state.seed,
             oracle: self.oracle.key(),

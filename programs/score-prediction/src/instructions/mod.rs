@@ -1,9 +1,11 @@
+pub mod claimRewards;
 pub mod deposit;
 pub mod endMatch;
 pub mod initialize;
 pub mod startMatch;
 pub mod updateScore;
 
+pub use claimRewards::*;
 pub use deposit::*;
 pub use endMatch::*;
 pub use initialize::*;
